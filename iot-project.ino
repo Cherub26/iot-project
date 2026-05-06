@@ -4,7 +4,7 @@
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 
-// Pin Definitions
+// Pin Definitions[cite: 1]
 #define SW420_PIN      12   
 #define TCRT5000_PIN   34   
 #define MOTOR_PIN      18   
@@ -16,6 +16,7 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+// Logic Variables
 volatile unsigned long startTime = 0, endTime = 0;
 volatile bool hitDetected = false;
 bool isWaitingForHit = false;
@@ -23,6 +24,7 @@ bool isCountingDown = false;
 bool isFalseStartActive = false; 
 unsigned long targetGoTime = 0;
 unsigned long handStartTime = 0;
+unsigned long lastOLEDUpdate = 0;
 int roundCount = 0;
 long totalTime = 0;
 
@@ -50,55 +52,73 @@ void loop() {
   ArduinoCloud.update();
   bool handPresent = (digitalRead(TCRT5000_PIN) == LOW);
 
+  // --- STEP 1: FALSE START DETECTION ---
   if (isCountingDown && hitDetected) {
     processFalseStart();
   }
 
+  // --- STEP 2: READY STATE & VISUALS ---
   if (!isWaitingForHit && !isCountingDown) {
     if (handPresent) {
       setRGB(0, 0, 255); 
-      if (!isFalseStartActive) {
+      if (!isFalseStartActive && gameStatus != "NOT READY!") {
         gameStatus = "[READY]";
-        falseStart = false;
       }
     } else {
       setRGB(0, 0, 0); 
-      gameStatus = "WAITING";
+      if (gameStatus != "NOT READY!") gameStatus = "WAITING";
       isFalseStartActive = false; 
-      falseStart = false;
     }
   }
 
-  if (handPresent && !isWaitingForHit && !isCountingDown && !isFalseStartActive) {
-    if (autoMode) {
-      if (handStartTime == 0) handStartTime = millis();
-      if (millis() - handStartTime > 1500) startCountdown();
-    } else if (triggerRound) {
-      startCountdown();
-    }
-    hitDetected = false; 
+  // --- STEP 3: AUTO-MODE TRIGGER ---
+  if (autoMode && handPresent && !isWaitingForHit && !isCountingDown && !isFalseStartActive) {
+    if (handStartTime == 0) handStartTime = millis();
+    if (millis() - handStartTime > 1500) startCountdown();
   } else if (!handPresent) {
     handStartTime = 0;
   }
 
+  // --- STEP 4: COUNTDOWN ---
   if (isCountingDown && millis() >= targetGoTime) {
     triggerGoSignal();
   }
 
+  // --- STEP 5: IMPACT ---
   if (isWaitingForHit && hitDetected) {
     processHit();
   }
   
-  updateOLED();
+  if (millis() - lastOLEDUpdate > 100) {
+    updateOLED();
+    lastOLEDUpdate = millis();
+  }
+}
+
+// --- DASHBOARD BUTTON CALLBACK ---
+void onTriggerRoundChange() {
+  bool handPresent = (digitalRead(TCRT5000_PIN) == LOW);
+  if (triggerRound) { 
+    if (handPresent && !isCountingDown && !isWaitingForHit) {
+      startCountdown();
+    } else if (!handPresent) {
+      gameStatus = "NOT READY!";
+    }
+    triggerRound = false; 
+  }
 }
 
 void startCountdown() {
+  // THE FIX: Ignore vibrations that happened while WAITING or READY[cite: 2]
+  noInterrupts();
+  hitDetected = false; 
+  interrupts();
+
   isCountingDown = true;
-  triggerRound = false;
   isFalseStartActive = false;
   falseStart = false;
   gameStatus = "GET SET...";
-  setRGB(255, 255, 0); 
+  setRGB(255, 255, 0); // Yellow Alert[cite: 1]
   targetGoTime = millis() + random(1000, 3000); 
 }
 
@@ -116,24 +136,17 @@ void processFalseStart() {
 
 void triggerGoSignal() {
   isCountingDown = false;
-  
-  // 1. Record start time at the VERY beginning for 100% accuracy[cite: 1, 2]
   startTime = millis(); 
-  
-  // 2. Start the "Go!" signal
-  setRGB(0, 255, 0); // Green
+  setRGB(0, 255, 0); 
   digitalWrite(MOTOR_PIN, HIGH); 
-  
-  // 3. Buzz for 150ms[cite: 2]
   delay(150); 
   digitalWrite(MOTOR_PIN, LOW);
   
-  // 4. THE INSURANCE: Clear any 'ghost hits' caused by the motor[cite: 2]
+  // Clear motor vibrations before starting the timer[cite: 2]
   noInterrupts();
   hitDetected = false; 
   interrupts();
   
-  // 5. Now, and only now, start listening for the user[cite: 2]
   isWaitingForHit = true; 
 }
 
@@ -161,34 +174,22 @@ void updateOLED() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0, 0); 
-  display.print("W:OK"); 
-  display.setCursor(45, 0); 
-  display.print("C:"); display.print(ArduinoCloud.connected() ? "OK" : "NO");
-  display.setCursor(90, 0); 
-  display.print(WiFi.RSSI()); display.print("dB");
-  display.setCursor(0, 10);
-  display.print("IP: "); display.print(WiFi.localIP().toString());
+  display.setCursor(0, 0); display.print("W:OK"); 
+  display.setCursor(45, 0); display.print("C:"); display.print(ArduinoCloud.connected() ? "OK" : "NO");
+  display.setCursor(90, 0); display.print(WiFi.RSSI()); display.print("dB");
+  display.setCursor(0, 10); display.print("IP: "); display.print(WiFi.localIP().toString());
   display.drawLine(0, 20, 128, 20, WHITE);
-  display.setCursor(0, 24); 
-  display.print("S:"); display.print(gameStatus);
-  display.setCursor(80, 24); 
-  display.print("R:"); display.print(roundCount);
-  display.setCursor(115, 24); 
-  display.print(autoMode ? "A" : "M");
-  display.setTextSize(2);
-  display.setCursor(20, 36); 
-  display.print(reflexTime); display.print(" ms");
+  display.setCursor(0, 24); display.print("S:"); display.print(gameStatus);
+  display.setCursor(80, 24); display.print("R:"); display.print(roundCount);
+  display.setCursor(115, 24); display.print(autoMode ? "A" : "M");
+  display.setTextSize(2); display.setCursor(20, 36); display.print(reflexTime); display.print(" ms");
   display.drawLine(0, 54, 128, 54, WHITE);
   display.setTextSize(1);
-  display.setCursor(0, 57); 
-  display.print("B:"); display.print(bestTime);
-  display.setCursor(68, 57); 
-  display.print("A:"); display.print(avgTime);
+  display.setCursor(0, 57); display.print("B:"); display.print(bestTime);
+  display.setCursor(68, 57); display.print("A:"); display.print(avgTime);
   display.display();
 }
 
-void onTriggerRoundChange() {}
 void onAutoModeChange() {}
 void onResetStatsChange() { 
   if(resetStats) { 
