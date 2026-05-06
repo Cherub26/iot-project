@@ -12,8 +12,8 @@ void onTriggerRoundChange();
 void onAutoModeChange(); 
 
 String gameStatus;
-int avgTime, bestTime, reflexTime;
-bool resetStats, triggerRound, autoMode; 
+int avgTime, bestTime, reflexTime, cloudRoundCount;
+bool resetStats, triggerRound, autoMode, falseStart;
 
 void initProperties(){
   ArduinoCloud.setBoardId(DEVICE_LOGIN_NAME);
@@ -22,6 +22,8 @@ void initProperties(){
   ArduinoCloud.addProperty(avgTime, READ, ON_CHANGE, NULL);
   ArduinoCloud.addProperty(bestTime, READ, ON_CHANGE, NULL);
   ArduinoCloud.addProperty(reflexTime, READ, ON_CHANGE, NULL);
+  ArduinoCloud.addProperty(cloudRoundCount, READ, ON_CHANGE, NULL);
+  ArduinoCloud.addProperty(falseStart, READ, ON_CHANGE, NULL);
   ArduinoCloud.addProperty(resetStats, READWRITE, ON_CHANGE, onResetStatsChange);
   ArduinoCloud.addProperty(triggerRound, READWRITE, ON_CHANGE, onTriggerRoundChange);
   ArduinoCloud.addProperty(autoMode, READWRITE, ON_CHANGE, onAutoModeChange);
