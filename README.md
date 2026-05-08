@@ -51,6 +51,8 @@ To replicate the "Battle Box," connect the components to the ESP32 as follows:
 | **OLED Display** | SDA | **GPIO 21** | I2C Data |
 | **OLED Display** | SCL | **GPIO 22** | I2C Clock |
 
+<img width="1739" height="1424" alt="image" src="https://github.com/user-attachments/assets/bdd6b433-8440-4944-b9a0-aea4662428d6" />
+
 ---
 
 ## **5. System Architecture** 
